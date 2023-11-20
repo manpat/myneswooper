@@ -1,0 +1,10 @@
+[package]
+name = "minesweeper"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies.toybox]
+git = "https://github.com/manpat/toybox-rs.git"
+rev = "5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
