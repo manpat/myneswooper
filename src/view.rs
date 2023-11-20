@@ -1,76 +1,210 @@
 use toybox::prelude::*;
 
 use crate::ext::*;
-use crate::board::{Board, Cell};
+use crate::board::*;
+use crate::quad_builder::QuadBuilder;
+
+mod cell_view;
+use cell_view::*;
 
 
 pub struct BoardView {
 	main_vs: gfx::ShaderHandle,
 	main_fs: gfx::ShaderHandle,
+
+	bounds: Aabb2,
+	cells: Map<CellView>,
 }
 
 
 impl BoardView {
-	pub fn new(ctx: &mut toybox::Context, _board: &Board) -> anyhow::Result<BoardView> {
+	pub fn new(ctx: &mut toybox::Context, board: &Board) -> anyhow::Result<BoardView> {
 		let rm = &mut ctx.gfx.resource_manager;
+
+		let bounds = Aabb2::new(Vec2::splat(-1.0), Vec2::splat(1.0)) .expand(Vec2::splat(-0.05));
+
+		let cells = Map::new_with(|pos| {
+			let cell = board.cells.get(pos).unwrap();
+			let bounds = bounds.section(board.size(), pos);
+			CellView::from(&cell, bounds, pos)
+		});
 
 		Ok(BoardView {
 			main_vs: rm.request(gfx::LoadShaderRequest::from("shaders/main.vs.glsl")?),
 			main_fs: rm.request(gfx::LoadShaderRequest::from("shaders/main.fs.glsl")?),
+			bounds,
+			cells,
 		})
 	}
 
+	pub fn reset(&mut self, board: &Board) {
+		self.cells = Map::new_with(|pos| {
+			let cell = board.cells.get(pos).unwrap();
+			let bounds = self.bounds.section(board.size(), pos);
+			CellView::from(&cell, bounds, pos)
+		});
+	}
+
 	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board) {
-		let mut builder = QuadBuilder::default();
+		let mut any_response = None;
 
-		let board_bounds = Aabb2::new(Vec2::splat(-1.0), Vec2::splat(1.0)) .expand(Vec2::splat(-0.05));
+		for (cell_view, cell) in self.cells.iter_mut().zip(board.cells.iter()) {
+			if let Some(response) = cell_view.update(ctx, cell) {
+				any_response = Some((response, cell_view.position));
+			}
+		}
 
-		builder.add(board_bounds, Color::grey(0.2));
+		if let Some((response, position)) = any_response {
+			self.handle_response(response, position, board);
+		}
 
-		for (cell_bound, &cell) in board_bounds.split(board.size()).zip(&board.cells.data) {
-			let cell_color = match cell {
-				Cell::Bomb => Color::grey(0.01),
-				Cell::Empty => Color::grey(0.4),
-				Cell::BombAdjacent(_) => Color::from([1.0, 0.5, 1.0]),
-			};
+		self.draw(&mut ctx.gfx, board);
+	}
 
-			builder.add(cell_bound.expand(Vec2::splat(-0.05)), cell_color);
 
-			if let Cell::BombAdjacent(count) = cell {
-				let cell_extent = cell_bound.size() / 2.0;
+	fn handle_response(&mut self, response: CellResponse, cell_position: Vec2i, board: &mut Board) {
+		match response {
+			CellResponse::BombHit => {
+				let is_first_cell = self.cells.iter()
+					.filter(|view| view.state == CellState::Opened)
+					.count() == 1;
 
-				let marker_bounds = cell_bound.expand(Vec2::new(-cell_extent.x*0.5, -cell_extent.y * 0.6));
+				// First click is always safe
+				if is_first_cell {
+					self.move_bomb(cell_position, board);
+					return;
+				}
 
-				let pip_extent = cell_extent / 9.0;
+				self.uncover_all();
+				println!("LOSE!")
+			}
 
-				if count > 3 {
-					let top_row = count / 2;
-					let bottom_row = count - top_row;
+			CellResponse::FlagPlaced => {
+				if self.are_all_bombs_marked(board) {
+					self.uncover_all();
+					println!("WIN!");
+				}
+			}
 
-					let (bottom_bounds, top_bounds) = marker_bounds.split_once_vertical(0.5);
+			CellResponse::OpenSpaceUncovered => {
+				self.flood_uncover_empty(cell_position, board);
+			}
+		}
+	}
 
-					for pip_bounds in bottom_bounds.split(Vec2i::new(bottom_row as i32, 1)) {
-						let pip = Aabb2::around_point(pip_bounds.center(), pip_extent);
-						builder.add(pip, Color::grey(0.01));
-					}
+	fn uncover_all(&mut self) {
+		for cell_view in self.cells.iter_mut() {
+			if cell_view.state != CellState::Flagged {
+				cell_view.state = CellState::Opened;
+			}
+		}
+	}
 
-					for pip_bounds in top_bounds.split(Vec2i::new(top_row as i32, 1)) {
-						let pip = Aabb2::around_point(pip_bounds.center(), pip_extent);
-						builder.add(pip, Color::grey(0.01));
-					}
+	fn are_all_bombs_marked(&self, board: &Board) -> bool {
+		self.cells.iter().map(|v| v.state)
+			.zip(board.cells.iter().cloned())
+			.all(|state_cell| match state_cell {
+				(CellState::Flagged, cell) => cell == Cell::Bomb,
+				(state, Cell::Bomb) => state == CellState::Flagged,
+				_ => true,
+			})
+	}
 
-				} else {
-					for pip_bounds in marker_bounds.split(Vec2i::new(count as i32, 1)) {
-						let pip = Aabb2::around_point(pip_bounds.center(), pip_extent);
-						builder.add(pip, Color::grey(0.01));
-					}
+	fn flood_uncover_empty(&mut self, start: Vec2i, board: &Board) {
+		let start_cell = *board.cells.get(start).unwrap();
+		let starting_from_blank = start_cell == Cell::Empty;
+
+		let mut blank_queue = Vec::new();
+		let mut adjacent_queue = Vec::new();
+
+		if starting_from_blank {
+			blank_queue.push(start);
+		} else {
+			adjacent_queue.push(start);
+		}
+
+		while let Some(position) = blank_queue.pop() {
+			println!("dequeued blank {position:?}");
+
+			for neighbour_position in iter_ortho_neighbour_positions(position, board.size()) {
+				let cell = *board.cells.get(neighbour_position).unwrap();
+				if cell == Cell::Bomb {
+					continue
+				}
+
+				let state = &mut self.cells.get_mut(neighbour_position).unwrap().state;
+				if *state != CellState::Unopened {
+					continue;
+				}
+
+				*state = CellState::Opened;
+
+				if cell == Cell::Empty {
+					blank_queue.push(neighbour_position);
 				}
 			}
 		}
 
+		while let Some(position) = adjacent_queue.pop() {
+			println!("dequeued adjacent {position:?}");
+
+			for neighbour_position in iter_ortho_neighbour_positions(position, board.size()) {
+				let cell = *board.cells.get(neighbour_position).unwrap();
+				if cell == Cell::Bomb {
+					continue
+				}
+
+				let state = &mut self.cells.get_mut(neighbour_position).unwrap().state;
+				*state = CellState::Opened;
+			}
+		}
+	}
+
+	fn move_bomb(&mut self, position: Vec2i, board: &mut Board) {
+		println!("Moving bomb from {position:?}");
+
+		board.cells.set(position, Cell::Empty);
+
+        let mut rng = rand::thread_rng();
+
+        for _ in 0..8 {
+            let new_position = Vec2i::new(
+                rng.gen_range(0..board.size().x),
+                rng.gen_range(0..board.size().y)
+            );
+
+            if new_position == position {
+            	continue
+            }
+
+            let cell = board.cells.get_mut(new_position).unwrap();
+            if *cell == Cell::Empty {
+            	*cell = Cell::Bomb;
+            	break
+            }
+        }
+
+		board.rebuild_adjacency();
+
+		// If the newly empty cell has no adjacent bombs, flood fill as normal
+		let new_cell = board.cells.get(position).unwrap();
+		if new_cell == &Cell::Empty {
+			self.flood_uncover_empty(position, board);
+		}
+	}
+
+	fn draw(&self, gfx: &mut gfx::System, board: &Board) {
+		let mut builder = QuadBuilder::default();
+
+		builder.add(self.bounds, Color::grey(0.2));
+
+		for (cell_view, cell) in self.cells.iter().zip(board.cells.iter()) {
+			cell_view.draw(&mut builder, cell);
+		}
+
 		builder.finish();
 
-		let mut group = ctx.gfx.frame_encoder.command_group("main");
+		let mut group = gfx.frame_encoder.command_group("main");
 
 		group.draw(self.main_vs, self.main_fs)
 			.elements(builder.indices.len() as u32)
@@ -83,42 +217,5 @@ impl BoardView {
 
 
 
-
-
-
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct QuadVert {
-	pos: Vec2,
-	color: [u8; 4],
-	_pad: u32,
-}
-
-#[derive(Default)]
-struct QuadBuilder {
-	vertices: Vec<QuadVert>,
-	indices: Vec<u32>,
-}
-
-impl QuadBuilder {
-	fn add(&mut self, Aabb2{min, max}: Aabb2, color: impl Into<Color>) {
-		let color = color.into().to_byte_array();
-
-		self.vertices.push(QuadVert{ pos: Vec2::new(min.x, min.y), color, _pad: 0 });
-		self.vertices.push(QuadVert{ pos: Vec2::new(min.x, max.y), color, _pad: 0 });
-		self.vertices.push(QuadVert{ pos: Vec2::new(max.x, max.y), color, _pad: 0 });
-		self.vertices.push(QuadVert{ pos: Vec2::new(max.x, min.y), color, _pad: 0 });
-	}
-
-	fn finish(&mut self) {
-		let num_quads = self.vertices.len() / 4;
-
-		let indices = (0..num_quads as u32)
-			.flat_map(|idx| [0u32, 1, 2, 0, 2, 3].into_iter().map(move |base| base + idx*4));
-
-		self.indices.extend(indices)
-	}
-}
 
 
