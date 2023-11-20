@@ -10,6 +10,10 @@ pub trait Aabb2Ext {
 	}
 
 	fn scale_about_center(&self, amount: Vec2) -> Aabb2;
+	fn aspect(&self) -> f32 {
+		let size = self.size();
+		size.x / size.y
+	}
 
 	fn size(&self) -> Vec2;
 	fn center(&self) -> Vec2;

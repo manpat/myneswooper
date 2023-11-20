@@ -2,9 +2,6 @@ use toybox::prelude::*;
 use crate::ext::*;
 
 
-pub const BOARD_SIZE: Vec2i = Vec2i::splat(10); 
-pub const BOARD_WIDTH: i32 = BOARD_SIZE.x; 
-
 
 #[derive(Debug)]
 pub struct Board {
@@ -12,20 +9,20 @@ pub struct Board {
 }
 
 impl Board {
-	pub fn empty() -> Self {
+	pub fn empty(size: Vec2i) -> Self {
 		Self {
-			cells: Map::new(Cell::Empty),
+			cells: Map::new(size, Cell::Empty),
 		}
 	}
 
-	pub fn with_bombs(count: usize) -> Self {
-		let mut board = Board::empty();
+	pub fn with_bombs(size: Vec2i, count: usize) -> Self {
+		let mut board = Board::empty(size);
         let mut rng = rand::thread_rng();
 
         for _ in 0..count {
             let pos = Vec2i::new(
-                rng.gen_range(0..board.size().x),
-                rng.gen_range(0..board.size().y)
+                rng.gen_range(0..size.x),
+                rng.gen_range(0..size.y)
             );
 
             board.cells.set(pos, Cell::Bomb);
@@ -37,7 +34,7 @@ impl Board {
 	}
 
 	pub fn size(&self) -> Vec2i {
-		BOARD_SIZE
+		self.cells.size()
 	}
 
 	pub fn rebuild_adjacency(&mut self) {
@@ -77,29 +74,31 @@ pub enum Cell {
 #[derive(Debug)]
 pub struct Map<T> {
 	pub data: Vec<T>,
+	size: Vec2i,
 }
 
 impl<T> Map<T> {
-	pub fn new_with<F>(value_fn: F) -> Self
+	pub fn new_with<F>(size: Vec2i, value_fn: F) -> Self
 		where F: Fn(Vec2i) -> T
 	{
 		Self {
-			data: (0..BOARD_SIZE.x*BOARD_SIZE.y).map(move |idx| {
+			data: (0..size.x*size.y).map(move |idx| {
 				let idx = idx as i32;
-				let pos = Vec2i::new(idx % BOARD_WIDTH, idx / BOARD_WIDTH);
+				let pos = Vec2i::new(idx % size.x, idx / size.x);
 				value_fn(pos)
 			})
-			.collect()
+			.collect(),
+
+			size
 		}
 	}
 
-	#[allow(unused)]
 	pub fn size(&self) -> Vec2i {
-		BOARD_SIZE
+		self.size
 	}
 
 	pub fn in_bounds(&self, pos: Vec2i) -> bool {
-		Aabb2i::with_size(BOARD_SIZE).contains_point(pos)
+		Aabb2i::with_size(self.size).contains_point(pos)
 	}
 
 	pub fn get_mut(&mut self, pos: Vec2i) -> Option<&mut T> {
@@ -107,7 +106,7 @@ impl<T> Map<T> {
 			return None
 		}
 
-		let index = pos.x + pos.y * BOARD_WIDTH;
+		let index = pos.x + pos.y * self.size.x;
 		Some(&mut self.data[index as usize])
 	}
 
@@ -130,21 +129,22 @@ impl<T> Map<T> {
 			return None
 		}
 
-		let index = pos.x + pos.y * BOARD_WIDTH;
+		let index = pos.x + pos.y * self.size.x;
 		Some(&self.data[index as usize])
 	}
 
 
 	pub fn iter_neighbours(&self, pos: Vec2i) -> impl Iterator<Item=&T> + '_ {
-		iter_all_neighbour_positions(pos, self.size())
+		iter_all_neighbour_positions(pos, self.size)
 			.filter_map(|pos| self.get(pos))
 	}
 }
 
 impl<T: Copy> Map<T> {
-	pub fn new(value: T) -> Self {
+	pub fn new(size: Vec2i, value: T) -> Self {
 		Self {
-			data: vec![value; (BOARD_SIZE.x*BOARD_SIZE.y) as usize]
+			data: vec![value; (size.x*size.y) as usize],
+			size,
 		}
 	}
 }

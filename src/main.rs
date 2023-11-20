@@ -23,17 +23,27 @@ struct App {
 	board: Board,
 	board_view: BoardView,
 
+	board_size: Vec2i,
+	num_bombs: usize,
+
 	debug_board: bool,
 }
 
 impl App {
 	fn new(ctx: &mut toybox::Context) -> anyhow::Result<App> {
-		let board = Board::with_bombs(5);
+		let board_size = Vec2i::new(8, 8);
+		let num_bombs = 5;
+
+		let board = Board::with_bombs(board_size, num_bombs);
 		let board_view = BoardView::new(ctx, &board)?;
 
 		Ok(App{
 			board,
 			board_view,
+
+			board_size,
+			num_bombs,
+
 			debug_board: false,
 		})
 	}
@@ -43,15 +53,27 @@ impl App {
 			return;
 		}
 
+		let mut do_reset = false;
+
 		egui::Window::new("Board")
 			.open(&mut self.debug_board)
 			.show(&ctx.egui, |ui| {
-				ui.label(format!("{:#?}", self.board));
+				ui.add(egui::DragValue::new(&mut self.board_size.x).clamp_range(2..=30));
+				ui.add(egui::DragValue::new(&mut self.board_size.y).clamp_range(2..=30));
+				ui.add(egui::DragValue::new(&mut self.num_bombs).clamp_range(1..=100));
+
+				if ui.button("Reset").clicked() {
+					do_reset = true;
+				}
 			});
+
+		if do_reset {
+			self.reset();
+		}
 	}
 
 	fn reset(&mut self) {
-		self.board = Board::with_bombs(5);
+		self.board = Board::with_bombs(self.board_size, self.num_bombs);
 		self.board_view.reset(&self.board);
 	}
 }
@@ -68,14 +90,28 @@ impl toybox::App for App {
 
 		ctx.gfx.frame_encoder.backbuffer_color([0.1; 3]);
 
+
+		// TODO(pat.m): this is convoluted and confusing.
+		// there should be utilies for constructing an ortho matrix that preserves a safe _bounding box_ instead of a 1x1 area.
 		let aspect = ctx.gfx.backbuffer_aspect();
-		let global_uniforms = GlobalUniforms {
-			projection: Mat4::ortho_aspect(1.0, aspect, -1.0, 1.0),
+		let board_aspect = self.board_view.bounds.aspect();
+
+		let safe_zone = if aspect < 1.0 {
+			board_aspect
+		} else {
+			(board_aspect / aspect).max(1.0)
 		};
+
+		let global_uniforms = GlobalUniforms {
+			projection: {
+				Mat4::ortho_aspect(safe_zone, aspect, -1.0, 1.0)
+			}
+		};
+
 
 		ctx.gfx.frame_encoder.bind_global_ubo(0, &[global_uniforms]);
 
-		self.board_view.update(ctx, &mut self.board);
+		self.board_view.update(ctx, &mut self.board, safe_zone);
 	}
 
 	fn customise_debug_menu(&mut self, ui: &mut egui::Ui) {

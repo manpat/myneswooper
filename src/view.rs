@@ -11,45 +11,49 @@ use cell_view::*;
 pub struct BoardView {
 	main_vs: gfx::ShaderHandle,
 	main_fs: gfx::ShaderHandle,
+	atlas: gfx::ImageHandle,
+	sampler: gfx::SamplerName,
 
-	bounds: Aabb2,
+	pub bounds: Aabb2,
 	cells: Map<CellView>,
 }
 
 
 impl BoardView {
 	pub fn new(ctx: &mut toybox::Context, board: &Board) -> anyhow::Result<BoardView> {
+		let core = &mut ctx.gfx.core;
 		let rm = &mut ctx.gfx.resource_manager;
 
-		let bounds = Aabb2::new(Vec2::splat(-1.0), Vec2::splat(1.0)) .expand(Vec2::splat(-0.05));
-
-		let cells = Map::new_with(|pos| {
-			let cell = board.cells.get(pos).unwrap();
-			let bounds = bounds.section(board.size(), pos).scale_about_center(Vec2::splat(0.95));
-			CellView::from(&cell, bounds, pos)
-		});
+		let bounds = Self::make_bounds(board);
 
 		Ok(BoardView {
 			main_vs: rm.request(gfx::LoadShaderRequest::from("shaders/main.vs.glsl")?),
 			main_fs: rm.request(gfx::LoadShaderRequest::from("shaders/main.fs.glsl")?),
+			atlas: rm.request(gfx::LoadImageRequest::from("images/atlas.png")),
+
+			sampler: {
+				let sampler = core.create_sampler();
+				core.set_sampler_addressing_mode(sampler, gfx::AddressingMode::Clamp);
+				core.set_sampler_minify_filter(sampler, gfx::FilterMode::Nearest, None);
+				core.set_sampler_magnify_filter(sampler, gfx::FilterMode::Nearest);
+				sampler
+			},
+
 			bounds,
-			cells,
+			cells: Self::make_cells(board, bounds),
 		})
 	}
 
 	pub fn reset(&mut self, board: &Board) {
-		self.cells = Map::new_with(|pos| {
-			let cell = board.cells.get(pos).unwrap();
-			let bounds = self.bounds.section(board.size(), pos);
-			CellView::from(&cell, bounds, pos)
-		});
+		self.bounds = Self::make_bounds(board);
+		self.cells = Self::make_cells(board, self.bounds);
 	}
 
-	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board) {
+	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board, safe_zone: f32) {
 		let mut any_response = None;
 
 		for (cell_view, cell) in self.cells.iter_mut().zip(board.cells.iter()) {
-			if let Some(response) = cell_view.update(ctx, cell) {
+			if let Some(response) = cell_view.update(ctx, cell, safe_zone) {
 				any_response = Some((response, cell_view.position));
 			}
 		}
@@ -59,6 +63,24 @@ impl BoardView {
 		}
 
 		self.draw(&mut ctx.gfx, board);
+	}
+
+	fn make_bounds(board: &Board) -> Aabb2 {
+		let Vec2{x, y} = board.size().to_vec2();
+		let aspect = x/y;
+
+		let extent = Vec2::new(aspect, 1.0);
+
+		Aabb2::new(-extent, extent)
+			.shrink(Vec2::splat(0.05))
+	}
+
+	fn make_cells(board: &Board, bounds: Aabb2) -> Map<CellView> {
+		Map::new_with(board.size(), |pos| {
+			let cell = board.cells.get(pos).unwrap();
+			let bounds = bounds.section(board.size(), pos).scale_about_center(Vec2::splat(0.95));
+			CellView::from(&cell, bounds, pos)
+		})
 	}
 
 
@@ -144,7 +166,7 @@ impl BoardView {
 
         let mut rng = rand::thread_rng();
 
-        for _ in 0..8 {
+        for _ in 0..16 {
             let new_position = Vec2i::new(
                 rng.gen_range(0..board.size().x),
                 rng.gen_range(0..board.size().y)
@@ -173,7 +195,7 @@ impl BoardView {
 	fn draw(&self, gfx: &mut gfx::System, board: &Board) {
 		let mut builder = QuadBuilder::default();
 
-		builder.add(self.bounds, Color::grey(0.2));
+		builder.add(self.bounds, Color::grey(0.2), 0);
 
 		for (cell_view, cell) in self.cells.iter().zip(board.cells.iter()) {
 			cell_view.draw(&mut builder, cell);
@@ -187,7 +209,9 @@ impl BoardView {
 			.elements(builder.indices.len() as u32)
 			.indexed(&builder.indices)
 			.ssbo(0, &builder.vertices)
-			.depth_test(false);
+			.sampled_image(0, self.atlas, self.sampler)
+			.depth_test(false)
+			.blend_mode(gfx::BlendMode::ALPHA);
 	}
 }
 

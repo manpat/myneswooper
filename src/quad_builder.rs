@@ -9,13 +9,13 @@ pub struct QuadBuilder {
 }
 
 impl QuadBuilder {
-	pub fn add(&mut self, Aabb2{min, max}: Aabb2, color: impl Into<Color>) {
+	pub fn add(&mut self, Aabb2{min, max}: Aabb2, color: impl Into<Color>, texture_index: u16) {
 		let color = color.into().to_byte_array();
 
-		self.vertices.push(QuadVert{ pos: Vec2::new(min.x, min.y), color, _pad: 0 });
-		self.vertices.push(QuadVert{ pos: Vec2::new(min.x, max.y), color, _pad: 0 });
-		self.vertices.push(QuadVert{ pos: Vec2::new(max.x, max.y), color, _pad: 0 });
-		self.vertices.push(QuadVert{ pos: Vec2::new(max.x, min.y), color, _pad: 0 });
+		self.vertices.push(QuadVert{ pos: Vec2::new(min.x, min.y), color, uv: [0, 0], texture_index });
+		self.vertices.push(QuadVert{ pos: Vec2::new(min.x, max.y), color, uv: [0, 255], texture_index });
+		self.vertices.push(QuadVert{ pos: Vec2::new(max.x, max.y), color, uv: [255, 255], texture_index });
+		self.vertices.push(QuadVert{ pos: Vec2::new(max.x, min.y), color, uv: [255, 0], texture_index });
 	}
 
 	pub fn finish(&mut self) {
@@ -36,5 +36,7 @@ impl QuadBuilder {
 pub struct QuadVert {
 	pos: Vec2,
 	color: [u8; 4],
-	_pad: u32,
+
+	uv: [u8; 2],
+	texture_index: u16,
 }
