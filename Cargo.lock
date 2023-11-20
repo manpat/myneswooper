@@ -325,8 +325,8 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.3.2"
-source = "git+https://github.com/manpat/common-rs.git#44d675b8e238ba811172b6d2cd86c2e4a806bf11"
+version = "0.4.0"
+source = "git+https://github.com/manpat/common-rs.git#068bdc305b20696abe6761834cd6f5f0a657ef50"
 dependencies = [
  "rand",
  "rand_derive2",
@@ -712,7 +712,7 @@ dependencies = [
 [[package]]
 name = "gl"
 version = "0.1.0"
-source = "git+https://github.com/manpat/toybox-rs.git?rev=5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e#5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+source = "git+https://github.com/manpat/toybox-rs.git?rev=7ea98f3e41fc42ed7db866b309ac3ad55db85b8b#7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
 dependencies = [
  "gl_generator",
 ]
@@ -1921,7 +1921,7 @@ dependencies = [
 [[package]]
 name = "toybox"
 version = "0.4.0"
-source = "git+https://github.com/manpat/toybox-rs.git?rev=5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e#5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+source = "git+https://github.com/manpat/toybox-rs.git?rev=7ea98f3e41fc42ed7db866b309ac3ad55db85b8b#7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
 dependencies = [
  "anyhow",
  "common",
@@ -1938,7 +1938,7 @@ dependencies = [
 [[package]]
 name = "toybox-audio"
 version = "0.1.0"
-source = "git+https://github.com/manpat/toybox-rs.git?rev=5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e#5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+source = "git+https://github.com/manpat/toybox-rs.git?rev=7ea98f3e41fc42ed7db866b309ac3ad55db85b8b#7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
 dependencies = [
  "anyhow",
  "cpal",
@@ -1947,7 +1947,7 @@ dependencies = [
 [[package]]
 name = "toybox-egui"
 version = "0.1.0"
-source = "git+https://github.com/manpat/toybox-rs.git?rev=5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e#5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+source = "git+https://github.com/manpat/toybox-rs.git?rev=7ea98f3e41fc42ed7db866b309ac3ad55db85b8b#7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
 dependencies = [
  "anyhow",
  "egui",
@@ -1958,7 +1958,7 @@ dependencies = [
 [[package]]
 name = "toybox-gfx"
 version = "0.1.0"
-source = "git+https://github.com/manpat/toybox-rs.git?rev=5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e#5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+source = "git+https://github.com/manpat/toybox-rs.git?rev=7ea98f3e41fc42ed7db866b309ac3ad55db85b8b#7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
 dependencies = [
  "anyhow",
  "bumpalo",
@@ -1970,7 +1970,7 @@ dependencies = [
 [[package]]
 name = "toybox-host"
 version = "0.1.0"
-source = "git+https://github.com/manpat/toybox-rs.git?rev=5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e#5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+source = "git+https://github.com/manpat/toybox-rs.git?rev=7ea98f3e41fc42ed7db866b309ac3ad55db85b8b#7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
 dependencies = [
  "anyhow",
  "common",
@@ -1984,7 +1984,7 @@ dependencies = [
 [[package]]
 name = "toybox-input"
 version = "0.1.0"
-source = "git+https://github.com/manpat/toybox-rs.git?rev=5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e#5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+source = "git+https://github.com/manpat/toybox-rs.git?rev=7ea98f3e41fc42ed7db866b309ac3ad55db85b8b#7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
 dependencies = [
  "common",
  "egui",
@@ -2089,9 +2089,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.5.0"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88ad59a7560b41a70d191093a945f0b87bc1deeda46fb237479708a1d6b6cdfc"
+checksum = "5e395fcf16a7a3d8127ec99782007af141946b4795001f876d54fb0d55978560"
 
 [[package]]
 name = "valuable"

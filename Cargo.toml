@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies.toybox]
 git = "https://github.com/manpat/toybox-rs.git"
-rev = "5e4c7a8f2826ada4cf7642b25cb60cc43a281e7e"
+rev = "7ea98f3e41fc42ed7db866b309ac3ad55db85b8b"
