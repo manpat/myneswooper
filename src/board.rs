@@ -76,7 +76,7 @@ pub enum Cell {
 
 #[derive(Debug)]
 pub struct Map<T> {
-	pub data: [T; (BOARD_SIZE.x*BOARD_SIZE.y) as usize],
+	pub data: Vec<T>,
 }
 
 impl<T> Map<T> {
@@ -84,11 +84,12 @@ impl<T> Map<T> {
 		where F: Fn(Vec2i) -> T
 	{
 		Self {
-			data: std::array::from_fn(move |idx| {
+			data: (0..BOARD_SIZE.x*BOARD_SIZE.y).map(move |idx| {
 				let idx = idx as i32;
 				let pos = Vec2i::new(idx % BOARD_WIDTH, idx / BOARD_WIDTH);
 				value_fn(pos)
 			})
+			.collect()
 		}
 	}
 
@@ -143,7 +144,7 @@ impl<T> Map<T> {
 impl<T: Copy> Map<T> {
 	pub fn new(value: T) -> Self {
 		Self {
-			data: [value; (BOARD_SIZE.x*BOARD_SIZE.y) as usize]
+			data: vec![value; (BOARD_SIZE.x*BOARD_SIZE.y) as usize]
 		}
 	}
 }

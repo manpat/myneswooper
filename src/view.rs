@@ -25,7 +25,7 @@ impl BoardView {
 
 		let cells = Map::new_with(|pos| {
 			let cell = board.cells.get(pos).unwrap();
-			let bounds = bounds.section(board.size(), pos);
+			let bounds = bounds.section(board.size(), pos).scale_about_center(Vec2::splat(0.95));
 			CellView::from(&cell, bounds, pos)
 		});
 
@@ -114,18 +114,9 @@ impl BoardView {
 		let start_cell = *board.cells.get(start).unwrap();
 		let starting_from_blank = start_cell == Cell::Empty;
 
-		let mut blank_queue = Vec::new();
-		let mut adjacent_queue = Vec::new();
+		let mut visit_queue = vec![start];
 
-		if starting_from_blank {
-			blank_queue.push(start);
-		} else {
-			adjacent_queue.push(start);
-		}
-
-		while let Some(position) = blank_queue.pop() {
-			println!("dequeued blank {position:?}");
-
+		while let Some(position) = visit_queue.pop() {
 			for neighbour_position in iter_ortho_neighbour_positions(position, board.size()) {
 				let cell = *board.cells.get(neighbour_position).unwrap();
 				if cell == Cell::Bomb {
@@ -139,23 +130,9 @@ impl BoardView {
 
 				*state = CellState::Opened;
 
-				if cell == Cell::Empty {
-					blank_queue.push(neighbour_position);
+				if starting_from_blank && cell == Cell::Empty {
+					visit_queue.push(neighbour_position);
 				}
-			}
-		}
-
-		while let Some(position) = adjacent_queue.pop() {
-			println!("dequeued adjacent {position:?}");
-
-			for neighbour_position in iter_ortho_neighbour_positions(position, board.size()) {
-				let cell = *board.cells.get(neighbour_position).unwrap();
-				if cell == Cell::Bomb {
-					continue
-				}
-
-				let state = &mut self.cells.get_mut(neighbour_position).unwrap().state;
-				*state = CellState::Opened;
 			}
 		}
 	}

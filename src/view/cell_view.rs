@@ -96,7 +96,7 @@ impl CellView {
 			true => Color::grey(0.7),
 		};
 
-		builder.add(self.bounds.scale_about_center(Vec2::splat(0.95)), bg_color);
+		builder.add(self.bounds, bg_color);
 	}
 
 	fn draw_flag(&self, builder: &mut QuadBuilder) {
@@ -112,7 +112,7 @@ impl CellView {
 			Cell::BombAdjacent(_) => Color::from([1.0, 0.5, 1.0]),
 		};
 
-		builder.add(self.bounds.scale_about_center(Vec2::splat(0.95)), cell_color);
+		builder.add(self.bounds, cell_color);
 
 		if let Cell::BombAdjacent(count) = *cell {
 			let cell_extent = self.bounds.size() / 2.0;
