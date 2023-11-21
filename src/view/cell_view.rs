@@ -24,7 +24,9 @@ pub enum CellState {
 pub enum CellResponse {
 	BombHit,
 	FlagPlaced,
+	FlagRemoved,
 	OpenSpaceUncovered,
+	UnsafeSpaceUncovered,
 }
 
 
@@ -54,14 +56,15 @@ impl CellView {
 
 		if self.is_hovered && self.state != CellState::Opened {
 			if ctx.input.button_just_down(input::MouseButton::Right) {
-				match self.state {
+				return match self.state {
 					CellState::Flagged => {
 						self.state = CellState::Unopened;
+						Some(CellResponse::FlagRemoved)
 					}
 
 					CellState::Unopened => {
 						self.state = CellState::Flagged;
-						return Some(CellResponse::FlagPlaced);
+						Some(CellResponse::FlagPlaced)
 					}
 
 					_ => unreachable!()
@@ -74,7 +77,7 @@ impl CellView {
 				return match *cell {
 					Cell::Bomb => Some(CellResponse::BombHit),
 					Cell::Empty => Some(CellResponse::OpenSpaceUncovered),
-					_ => None
+					Cell::BombAdjacent(_) => Some(CellResponse::UnsafeSpaceUncovered),
 				};
 			}
 		}

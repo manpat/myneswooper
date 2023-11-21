@@ -1,3 +1,5 @@
+#![feature(array_chunks)]
+
 use toybox::prelude::*;
 
 
@@ -10,6 +12,8 @@ fn main() -> anyhow::Result<()> {
 mod ext;
 use ext::*;
 
+mod sound;
+use sound::{SoundSystem, Sound};
 
 mod quad_builder;
 mod board;
@@ -22,6 +26,8 @@ use view::*;
 struct App {
 	board: Board,
 	board_view: BoardView,
+
+	sound: SoundSystem,
 
 	board_size: Vec2i,
 	num_bombs: usize,
@@ -40,6 +46,8 @@ impl App {
 		Ok(App{
 			board,
 			board_view,
+
+			sound: SoundSystem::start(&mut ctx.audio)?,
 
 			board_size,
 			num_bombs,
@@ -111,7 +119,7 @@ impl toybox::App for App {
 
 		ctx.gfx.frame_encoder.bind_global_ubo(0, &[global_uniforms]);
 
-		self.board_view.update(ctx, &mut self.board, safe_zone);
+		self.board_view.update(ctx, &self.sound, &mut self.board, safe_zone);
 	}
 
 	fn customise_debug_menu(&mut self, ui: &mut egui::Ui) {
@@ -121,6 +129,10 @@ impl toybox::App for App {
 
 		if ui.button("Reset").clicked() {
 			self.reset();
+		}
+
+		if ui.button("Plik").clicked() {
+			self.sound.play(Sound::Plik);
 		}
 	}
 }

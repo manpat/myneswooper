@@ -2,6 +2,7 @@ use toybox::prelude::*;
 
 use crate::ext::*;
 use crate::board::*;
+use crate::sound::*;
 use crate::quad_builder::QuadBuilder;
 
 mod cell_view;
@@ -49,7 +50,7 @@ impl BoardView {
 		self.cells = Self::make_cells(board, self.bounds);
 	}
 
-	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board, safe_zone: f32) {
+	pub fn update(&mut self, ctx: &mut toybox::Context, sound: &SoundSystem, board: &mut Board, safe_zone: f32) {
 		let mut any_response = None;
 
 		for (cell_view, cell) in self.cells.iter_mut().zip(board.cells.iter()) {
@@ -59,7 +60,7 @@ impl BoardView {
 		}
 
 		if let Some((response, position)) = any_response {
-			self.handle_response(response, position, board);
+			self.handle_response(response, position, board, sound);
 		}
 
 		self.draw(&mut ctx.gfx, board);
@@ -84,7 +85,7 @@ impl BoardView {
 	}
 
 
-	fn handle_response(&mut self, response: CellResponse, cell_position: Vec2i, board: &mut Board) {
+	fn handle_response(&mut self, response: CellResponse, cell_position: Vec2i, board: &mut Board, sound: &SoundSystem) {
 		match response {
 			CellResponse::BombHit => {
 				let is_first_cell = self.cells.iter()
@@ -93,23 +94,37 @@ impl BoardView {
 
 				// First click is always safe
 				if is_first_cell {
+					sound.play(Sound::Plik);
 					self.move_bomb(cell_position, board);
 					return;
 				}
 
 				self.uncover_all();
+				sound.play(Sound::Bong);
 				println!("LOSE!")
 			}
 
 			CellResponse::FlagPlaced => {
 				if self.are_all_bombs_marked(board) {
 					self.uncover_all();
+					sound.play(Sound::Tada);
 					println!("WIN!");
+				} else {
+					sound.play(Sound::Thup);
 				}
 			}
 
+			CellResponse::FlagRemoved => {
+				sound.play(Sound::Unthup);
+			}
+
 			CellResponse::OpenSpaceUncovered => {
+				sound.play(Sound::Plik);
 				self.flood_uncover_empty(cell_position, board);
+			}
+
+			CellResponse::UnsafeSpaceUncovered => {
+				sound.play(Sound::Plik);
 			}
 		}
 	}
