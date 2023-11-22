@@ -113,3 +113,40 @@ impl Aabb2i {
 		&& point.x < self.max.x && point.y < self.max.y
 	}
 }
+
+
+
+pub fn iter_neighbour_positions<const N: usize>(pos: Vec2i, size: Vec2i, deltas: [Vec2i; N]) -> impl Iterator<Item=Vec2i> {
+	deltas.into_iter()
+		.map(move |delta| pos + delta)
+		.filter(move |&pos| Aabb2i::with_size(size).contains_point(pos))
+}
+
+pub fn iter_all_neighbour_positions(pos: Vec2i, size: Vec2i) -> impl Iterator<Item=Vec2i> {
+	let deltas = [
+		Vec2i::new(-1, -1),
+		Vec2i::new( 0, -1),
+		Vec2i::new( 1, -1),
+
+		Vec2i::new(-1,  0),
+		Vec2i::new( 1,  0),
+
+		Vec2i::new(-1,  1),
+		Vec2i::new( 0,  1),
+		Vec2i::new( 1,  1),
+	];
+
+	iter_neighbour_positions(pos, size, deltas)
+}
+
+pub fn iter_ortho_neighbour_positions(pos: Vec2i, size: Vec2i) -> impl Iterator<Item=Vec2i> {
+	let deltas = [
+		Vec2i::new( 0, -1),
+		Vec2i::new( 0,  1),
+		Vec2i::new(-1,  0),
+		Vec2i::new( 1,  0),
+	];
+
+	iter_neighbour_positions(pos, size, deltas)
+}
+

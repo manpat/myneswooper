@@ -1,17 +1,19 @@
 use toybox::prelude::*;
 use crate::ext::*;
-
+use crate::map::*;
 
 
 #[derive(Debug)]
 pub struct Board {
-	pub cells: Map<Cell>,
+	pub types: Map<CellType>,
+	pub states: Map<CellState>,
 }
 
 impl Board {
 	pub fn empty(size: Vec2i) -> Self {
 		Self {
-			cells: Map::new(size, Cell::Empty),
+			types: Map::new(size, CellType::Empty),
+			states: Map::new(size, CellState::Unopened),
 		}
 	}
 
@@ -25,7 +27,7 @@ impl Board {
                 rng.gen_range(0..size.y)
             );
 
-            board.cells.set(pos, Cell::Bomb);
+            board.types.set(pos, CellType::Bomb);
         }
 
         board.rebuild_adjacency();
@@ -34,152 +36,129 @@ impl Board {
 	}
 
 	pub fn size(&self) -> Vec2i {
-		self.cells.size()
+		self.types.size()
 	}
 
-	pub fn rebuild_adjacency(&mut self) {
+	fn rebuild_adjacency(&mut self) {
 		for pos in vec2i_range(self.size()) {
-			let Some(&cell) = self.cells.get(pos) else { continue };
+			let Some(&cell) = self.types.get(pos) else { continue };
 
-			if cell == Cell::Bomb {
+			if cell == CellType::Bomb {
 				continue
 			}
 
-			let neighbouring_bombs = self.cells.iter_neighbours(pos)
-				.filter(|&&cell| cell == Cell::Bomb)
+			let neighbouring_bombs = self.types.iter_neighbours(pos)
+				.filter(|&&cell| cell == CellType::Bomb)
 				.count();
 
 			let new_cell = match neighbouring_bombs {
-				0 => Cell::Empty,
-				n => Cell::BombAdjacent(n),
+				0 => CellType::Empty,
+				n => CellType::BombAdjacent(n),
 			};
 
-			self.cells.set(pos, new_cell);
+			self.types.set(pos, new_cell);
 		}
 	}
 }
 
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Cell {
+pub enum CellType {
 	Empty,
 	Bomb,
 	BombAdjacent(usize),
 }
 
 
-
-
-
-#[derive(Debug)]
-pub struct Map<T> {
-	pub data: Vec<T>,
-	size: Vec2i,
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CellState {
+	Unopened,
+	Flagged,
+	Opened,
 }
 
-impl<T> Map<T> {
-	pub fn new_with<F>(size: Vec2i, value_fn: F) -> Self
-		where F: Fn(Vec2i) -> T
-	{
-		Self {
-			data: (0..size.x*size.y).map(move |idx| {
-				let idx = idx as i32;
-				let pos = Vec2i::new(idx % size.x, idx / size.x);
-				value_fn(pos)
+
+
+
+impl Board {
+	pub fn are_all_bombs_flagged(&self) -> bool {
+		self.states.iter().cloned()
+			.zip(self.types.iter().cloned())
+			.all(|state_cell| match state_cell {
+				(CellState::Flagged, cell) => cell == CellType::Bomb,
+				(state, CellType::Bomb) => state == CellState::Flagged,
+				_ => true,
 			})
-			.collect(),
+	}
 
-			size
+	pub fn uncover_all(&mut self) {
+		for state in self.states.iter_mut() {
+			if *state != CellState::Flagged {
+				*state = CellState::Opened;
+			}
 		}
 	}
 
-	pub fn size(&self) -> Vec2i {
-		self.size
-	}
+	pub fn flood_uncover_empty(&mut self, start: Vec2i) {
+		let start_cell = *self.types.get(start).unwrap();
+		let starting_from_blank = start_cell == CellType::Empty;
 
-	pub fn in_bounds(&self, pos: Vec2i) -> bool {
-		Aabb2i::with_size(self.size).contains_point(pos)
-	}
+		let mut visit_queue = vec![start];
 
-	pub fn get_mut(&mut self, pos: Vec2i) -> Option<&mut T> {
-		if !self.in_bounds(pos) {
-			return None
-		}
+		while let Some(position) = visit_queue.pop() {
+			for neighbour_position in iter_ortho_neighbour_positions(position, self.size()) {
+				let cell = *self.types.get(neighbour_position).unwrap();
+				if cell == CellType::Bomb {
+					continue
+				}
 
-		let index = pos.x + pos.y * self.size.x;
-		Some(&mut self.data[index as usize])
-	}
+				let state = self.states.get_mut(neighbour_position).unwrap();
+				if *state != CellState::Unopened {
+					continue;
+				}
 
-	pub fn set(&mut self, pos: Vec2i, value: T) {
-		if let Some(cell) = self.get_mut(pos) {
-			*cell = value;
-		}
-	}
+				*state = CellState::Opened;
 
-	pub fn iter(&self) -> impl Iterator<Item=&T> + '_ {
-		self.data.iter()
-	}
-
-	pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut T> + '_ {
-		self.data.iter_mut()
-	}
-
-	pub fn get(&self, pos: Vec2i) -> Option<&T> {
-		if !self.in_bounds(pos) {
-			return None
-		}
-
-		let index = pos.x + pos.y * self.size.x;
-		Some(&self.data[index as usize])
-	}
-
-
-	pub fn iter_neighbours(&self, pos: Vec2i) -> impl Iterator<Item=&T> + '_ {
-		iter_all_neighbour_positions(pos, self.size)
-			.filter_map(|pos| self.get(pos))
-	}
-}
-
-impl<T: Copy> Map<T> {
-	pub fn new(size: Vec2i, value: T) -> Self {
-		Self {
-			data: vec![value; (size.x*size.y) as usize],
-			size,
+				if starting_from_blank && cell == CellType::Empty {
+					visit_queue.push(neighbour_position);
+				}
+			}
 		}
 	}
-}
 
-pub fn iter_neighbour_positions<const N: usize>(pos: Vec2i, size: Vec2i, deltas: [Vec2i; N]) -> impl Iterator<Item=Vec2i> {
-	deltas.into_iter()
-		.map(move |delta| pos + delta)
-		.filter(move |&pos| Aabb2i::with_size(size).contains_point(pos))
-}
+	pub fn move_bomb(&mut self, position: Vec2i) {
+		println!("Moving bomb from {position:?}");
 
-pub fn iter_all_neighbour_positions(pos: Vec2i, size: Vec2i) -> impl Iterator<Item=Vec2i> {
-	let deltas = [
-		Vec2i::new(-1, -1),
-		Vec2i::new( 0, -1),
-		Vec2i::new( 1, -1),
+		self.types.set(position, CellType::Empty);
 
-		Vec2i::new(-1,  0),
-		Vec2i::new( 1,  0),
+        let mut rng = rand::thread_rng();
+        let Vec2i{x: width, y: height} = self.size();
 
-		Vec2i::new(-1,  1),
-		Vec2i::new( 0,  1),
-		Vec2i::new( 1,  1),
-	];
+        // Retry naively until it works
+        for _ in 0..32 {
+            let new_position = Vec2i::new(
+                rng.gen_range(0..width),
+                rng.gen_range(0..height)
+            );
 
-	iter_neighbour_positions(pos, size, deltas)
-}
+            if new_position == position {
+            	continue
+            }
 
-pub fn iter_ortho_neighbour_positions(pos: Vec2i, size: Vec2i) -> impl Iterator<Item=Vec2i> {
-	let deltas = [
-		Vec2i::new( 0, -1),
-		Vec2i::new( 0,  1),
-		Vec2i::new(-1,  0),
-		Vec2i::new( 1,  0),
-	];
+            let cell = self.types.get_mut(new_position).unwrap();
+            if *cell == CellType::Empty {
+            	*cell = CellType::Bomb;
+            	break
+            }
+        }
 
-	iter_neighbour_positions(pos, size, deltas)
+		self.rebuild_adjacency();
+
+		// If the newly empty cell has no adjacent bombs, flood fill as normal
+		let new_cell = self.types.get(position).unwrap();
+		if new_cell == &CellType::Empty {
+			self.flood_uncover_empty(position);
+		}
+	}
 }
 

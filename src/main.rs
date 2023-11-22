@@ -18,8 +18,9 @@ use sound::{SoundSystem, Sound};
 mod quad_builder;
 mod board;
 mod view;
+mod map;
 
-use board::Board;
+use board::*;
 use view::*;
 
 
@@ -33,6 +34,8 @@ struct App {
 	num_bombs: usize,
 
 	debug_board: bool,
+
+	cell_responses: Vec<(Vec2i, CellResponse)>,
 }
 
 impl App {
@@ -41,7 +44,7 @@ impl App {
 		let num_bombs = 5;
 
 		let board = Board::with_bombs(board_size, num_bombs);
-		let board_view = BoardView::new(ctx, &board)?;
+		let board_view = BoardView::new(ctx, board.size())?;
 
 		Ok(App{
 			board,
@@ -53,6 +56,8 @@ impl App {
 			num_bombs,
 
 			debug_board: false,
+
+			cell_responses: Vec::new(),
 		})
 	}
 
@@ -82,7 +87,51 @@ impl App {
 
 	fn reset(&mut self) {
 		self.board = Board::with_bombs(self.board_size, self.num_bombs);
-		self.board_view.reset(&self.board);
+		self.board_view.reset(self.board_size);
+	}
+
+	fn handle_response(&mut self, response: CellResponse, cell_position: Vec2i) {
+		match response {
+			CellResponse::BombHit => {
+				let is_first_cell = self.board.states.iter()
+					.filter(|&&state| state == CellState::Opened)
+					.count() == 1;
+
+				// First click is always safe
+				if is_first_cell {
+					self.sound.play(Sound::Plik);
+					self.board.move_bomb(cell_position);
+					return;
+				}
+
+				self.board.uncover_all();
+				self.sound.play(Sound::Bong);
+				println!("LOSE!")
+			}
+
+			CellResponse::FlagPlaced => {
+				if self.board.are_all_bombs_flagged() {
+					self.board.uncover_all();
+					self.sound.play(Sound::Tada);
+					println!("WIN!");
+				} else {
+					self.sound.play(Sound::Thup);
+				}
+			}
+
+			CellResponse::FlagRemoved => {
+				self.sound.play(Sound::Unthup);
+			}
+
+			CellResponse::OpenSpaceUncovered => {
+				self.sound.play(Sound::Plik);
+				self.board.flood_uncover_empty(cell_position);
+			}
+
+			CellResponse::UnsafeSpaceUncovered => {
+				self.sound.play(Sound::Plik);
+			}
+		}
 	}
 }
 
@@ -119,7 +168,16 @@ impl toybox::App for App {
 
 		ctx.gfx.frame_encoder.bind_global_ubo(0, &[global_uniforms]);
 
-		self.board_view.update(ctx, &self.sound, &mut self.board, safe_zone);
+		self.board_view.update(ctx, &mut self.board, safe_zone, &mut self.cell_responses);
+
+		let mut cell_responses = std::mem::take(&mut self.cell_responses);
+		for (position, response) in cell_responses.drain(..) {
+			self.handle_response(response, position);
+		}
+
+		self.cell_responses = cell_responses;
+
+		self.board_view.draw(&mut ctx.gfx, &self.board);
 	}
 
 	fn customise_debug_menu(&mut self, ui: &mut egui::Ui) {

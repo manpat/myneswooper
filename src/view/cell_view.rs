@@ -1,23 +1,14 @@
 use toybox::prelude::*;
 
 use crate::ext::*;
-use crate::board::{Cell};
+use crate::board::{CellType, CellState};
 use crate::quad_builder::QuadBuilder;
 
 
 #[derive(Copy, Clone, Debug)]
 pub struct CellView {
 	pub bounds: Aabb2,
-	pub position: Vec2i,
-	pub state: CellState,
 	pub is_hovered: bool,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum CellState {
-	Unopened,
-	Flagged,
-	Opened,
 }
 
 
@@ -31,16 +22,14 @@ pub enum CellResponse {
 
 
 impl CellView {
-	pub fn from(_cell: &Cell, bounds: Aabb2, position: Vec2i) -> CellView {
+	pub fn from(bounds: Aabb2) -> CellView {
 		CellView {
 			bounds,
-			position,
-			state: CellState::Unopened,
 			is_hovered: false,
 		}
 	}
 
-	pub fn update(&mut self, ctx: &mut toybox::Context, cell: &Cell, safe_zone: f32) -> Option<CellResponse> {
+	pub fn update(&mut self, ctx: &mut toybox::Context, cell_type: CellType, cell_state: &mut CellState, safe_zone: f32) -> Option<CellResponse> {
 		let Some(mouse_pos_ndc) = ctx.input.pointer_position() else {
 			self.is_hovered = false;
 			return None
@@ -54,16 +43,16 @@ impl CellView {
 
 		self.is_hovered = self.bounds.contains_point(mouse_pos_view);
 
-		if self.is_hovered && self.state != CellState::Opened {
+		if self.is_hovered && *cell_state != CellState::Opened {
 			if ctx.input.button_just_down(input::MouseButton::Right) {
-				return match self.state {
+				return match *cell_state {
 					CellState::Flagged => {
-						self.state = CellState::Unopened;
+						*cell_state = CellState::Unopened;
 						Some(CellResponse::FlagRemoved)
 					}
 
 					CellState::Unopened => {
-						self.state = CellState::Flagged;
+						*cell_state = CellState::Flagged;
 						Some(CellResponse::FlagPlaced)
 					}
 
@@ -71,13 +60,13 @@ impl CellView {
 				};
 			}
 
-			if self.state == CellState::Unopened && ctx.input.button_just_down(input::MouseButton::Left) {
-				self.state = CellState::Opened;
+			if *cell_state == CellState::Unopened && ctx.input.button_just_down(input::MouseButton::Left) {
+				*cell_state = CellState::Opened;
 
-				return match *cell {
-					Cell::Bomb => Some(CellResponse::BombHit),
-					Cell::Empty => Some(CellResponse::OpenSpaceUncovered),
-					Cell::BombAdjacent(_) => Some(CellResponse::UnsafeSpaceUncovered),
+				return match cell_type {
+					CellType::Bomb => Some(CellResponse::BombHit),
+					CellType::Empty => Some(CellResponse::OpenSpaceUncovered),
+					CellType::BombAdjacent(_) => Some(CellResponse::UnsafeSpaceUncovered),
 				};
 			}
 		}
@@ -85,11 +74,11 @@ impl CellView {
 		None
 	}
 
-	pub fn draw(&self, builder: &mut QuadBuilder, cell: &Cell) {
-		match self.state {
+	pub fn draw(&self, builder: &mut QuadBuilder, cell_type: CellType, cell_state: CellState) {
+		match cell_state {
 			CellState::Unopened => self.draw_unopened(builder),
 			CellState::Flagged => self.draw_flag(builder),
-			CellState::Opened => self.draw_opened(builder, cell),
+			CellState::Opened => self.draw_opened(builder, cell_type),
 		}
 	}
 
@@ -107,16 +96,16 @@ impl CellView {
 		builder.add(self.bounds, Color::white(), 9);
 	}
 
-	fn draw_opened(&self, builder: &mut QuadBuilder, cell: &Cell) {
-		match cell {
-			Cell::Empty => {},
+	fn draw_opened(&self, builder: &mut QuadBuilder, cell_type: CellType) {
+		match cell_type {
+			CellType::Empty => {},
 
-			Cell::Bomb => {
+			CellType::Bomb => {
 				builder.add(self.bounds, Color::white(), 10);
 			}
 
-			Cell::BombAdjacent(count) => {
-				builder.add(self.bounds, Color::white(), *count as u16);
+			CellType::BombAdjacent(count) => {
+				builder.add(self.bounds, Color::white(), count as u16);
 				
 				// self.draw_pips(builder, count);
 			}

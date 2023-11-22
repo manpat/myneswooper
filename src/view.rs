@@ -1,12 +1,14 @@
 use toybox::prelude::*;
 
-use crate::ext::*;
 use crate::board::*;
-use crate::sound::*;
+use crate::ext::*;
+use crate::map::*;
 use crate::quad_builder::QuadBuilder;
 
 mod cell_view;
 use cell_view::*;
+
+pub use cell_view::CellResponse;
 
 
 pub struct BoardView {
@@ -21,11 +23,11 @@ pub struct BoardView {
 
 
 impl BoardView {
-	pub fn new(ctx: &mut toybox::Context, board: &Board) -> anyhow::Result<BoardView> {
+	pub fn new(ctx: &mut toybox::Context, board_size: Vec2i) -> anyhow::Result<BoardView> {
 		let core = &mut ctx.gfx.core;
 		let rm = &mut ctx.gfx.resource_manager;
 
-		let bounds = Self::make_bounds(board);
+		let bounds = Self::make_bounds(board_size);
 
 		Ok(BoardView {
 			main_vs: rm.request(gfx::LoadShaderRequest::from("shaders/main.vs.glsl")?),
@@ -41,33 +43,27 @@ impl BoardView {
 			},
 
 			bounds,
-			cells: Self::make_cells(board, bounds),
+			cells: Self::make_cells(board_size, bounds),
 		})
 	}
 
-	pub fn reset(&mut self, board: &Board) {
-		self.bounds = Self::make_bounds(board);
-		self.cells = Self::make_cells(board, self.bounds);
+	pub fn reset(&mut self, board_size: Vec2i) {
+		self.bounds = Self::make_bounds(board_size);
+		self.cells = Self::make_cells(board_size, self.bounds);
 	}
 
-	pub fn update(&mut self, ctx: &mut toybox::Context, sound: &SoundSystem, board: &mut Board, safe_zone: f32) {
-		let mut any_response = None;
+	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board, safe_zone: f32, cell_responses: &mut Vec<(Vec2i, CellResponse)>) {
+		let types_and_states = std::iter::zip(board.types.iter(), board.states.iter_mut());
 
-		for (cell_view, cell) in self.cells.iter_mut().zip(board.cells.iter()) {
-			if let Some(response) = cell_view.update(ctx, cell, safe_zone) {
-				any_response = Some((response, cell_view.position));
+		for ((cell_position, cell_view), (&cell_type, cell_state)) in self.cells.iter_mut_with_positions().zip(types_and_states) {
+			if let Some(response) = cell_view.update(ctx, cell_type, cell_state, safe_zone) {
+				cell_responses.push((cell_position, response));
 			}
 		}
-
-		if let Some((response, position)) = any_response {
-			self.handle_response(response, position, board, sound);
-		}
-
-		self.draw(&mut ctx.gfx, board);
 	}
 
-	fn make_bounds(board: &Board) -> Aabb2 {
-		let Vec2{x, y} = board.size().to_vec2();
+	fn make_bounds(board_size: Vec2i) -> Aabb2 {
+		let Vec2{x, y} = board_size.to_vec2();
 		let aspect = x/y;
 
 		let extent = Vec2::new(aspect, 1.0);
@@ -76,144 +72,24 @@ impl BoardView {
 			.shrink(Vec2::splat(0.05))
 	}
 
-	fn make_cells(board: &Board, bounds: Aabb2) -> Map<CellView> {
-		Map::new_with(board.size(), |pos| {
-			let cell = board.cells.get(pos).unwrap();
-			let bounds = bounds.section(board.size(), pos).scale_about_center(Vec2::splat(0.95));
-			CellView::from(&cell, bounds, pos)
+	fn make_cells(board_size: Vec2i, bounds: Aabb2) -> Map<CellView> {
+		Map::new_with(board_size, |pos| {
+			let bounds = bounds.section(board_size, pos).scale_about_center(Vec2::splat(0.95));
+			CellView::from(bounds)
 		})
 	}
 
 
-	fn handle_response(&mut self, response: CellResponse, cell_position: Vec2i, board: &mut Board, sound: &SoundSystem) {
-		match response {
-			CellResponse::BombHit => {
-				let is_first_cell = self.cells.iter()
-					.filter(|view| view.state == CellState::Opened)
-					.count() == 1;
-
-				// First click is always safe
-				if is_first_cell {
-					sound.play(Sound::Plik);
-					self.move_bomb(cell_position, board);
-					return;
-				}
-
-				self.uncover_all();
-				sound.play(Sound::Bong);
-				println!("LOSE!")
-			}
-
-			CellResponse::FlagPlaced => {
-				if self.are_all_bombs_marked(board) {
-					self.uncover_all();
-					sound.play(Sound::Tada);
-					println!("WIN!");
-				} else {
-					sound.play(Sound::Thup);
-				}
-			}
-
-			CellResponse::FlagRemoved => {
-				sound.play(Sound::Unthup);
-			}
-
-			CellResponse::OpenSpaceUncovered => {
-				sound.play(Sound::Plik);
-				self.flood_uncover_empty(cell_position, board);
-			}
-
-			CellResponse::UnsafeSpaceUncovered => {
-				sound.play(Sound::Plik);
-			}
-		}
-	}
-
-	fn uncover_all(&mut self) {
-		for cell_view in self.cells.iter_mut() {
-			if cell_view.state != CellState::Flagged {
-				cell_view.state = CellState::Opened;
-			}
-		}
-	}
-
-	fn are_all_bombs_marked(&self, board: &Board) -> bool {
-		self.cells.iter().map(|v| v.state)
-			.zip(board.cells.iter().cloned())
-			.all(|state_cell| match state_cell {
-				(CellState::Flagged, cell) => cell == Cell::Bomb,
-				(state, Cell::Bomb) => state == CellState::Flagged,
-				_ => true,
-			})
-	}
-
-	fn flood_uncover_empty(&mut self, start: Vec2i, board: &Board) {
-		let start_cell = *board.cells.get(start).unwrap();
-		let starting_from_blank = start_cell == Cell::Empty;
-
-		let mut visit_queue = vec![start];
-
-		while let Some(position) = visit_queue.pop() {
-			for neighbour_position in iter_ortho_neighbour_positions(position, board.size()) {
-				let cell = *board.cells.get(neighbour_position).unwrap();
-				if cell == Cell::Bomb {
-					continue
-				}
-
-				let state = &mut self.cells.get_mut(neighbour_position).unwrap().state;
-				if *state != CellState::Unopened {
-					continue;
-				}
-
-				*state = CellState::Opened;
-
-				if starting_from_blank && cell == Cell::Empty {
-					visit_queue.push(neighbour_position);
-				}
-			}
-		}
-	}
-
-	fn move_bomb(&mut self, position: Vec2i, board: &mut Board) {
-		println!("Moving bomb from {position:?}");
-
-		board.cells.set(position, Cell::Empty);
-
-        let mut rng = rand::thread_rng();
-
-        for _ in 0..16 {
-            let new_position = Vec2i::new(
-                rng.gen_range(0..board.size().x),
-                rng.gen_range(0..board.size().y)
-            );
-
-            if new_position == position {
-            	continue
-            }
-
-            let cell = board.cells.get_mut(new_position).unwrap();
-            if *cell == Cell::Empty {
-            	*cell = Cell::Bomb;
-            	break
-            }
-        }
-
-		board.rebuild_adjacency();
-
-		// If the newly empty cell has no adjacent bombs, flood fill as normal
-		let new_cell = board.cells.get(position).unwrap();
-		if new_cell == &Cell::Empty {
-			self.flood_uncover_empty(position, board);
-		}
-	}
-
-	fn draw(&self, gfx: &mut gfx::System, board: &Board) {
+	pub fn draw(&self, gfx: &mut gfx::System, board: &Board) {
 		let mut builder = QuadBuilder::default();
 
 		builder.add(self.bounds, Color::grey(0.2), 0);
 
-		for (cell_view, cell) in self.cells.iter().zip(board.cells.iter()) {
-			cell_view.draw(&mut builder, cell);
+
+		let types_and_states = std::iter::zip(board.types.iter(), board.states.iter());
+
+		for (cell_view, (cell_type, cell_state)) in self.cells.iter().zip(types_and_states) {
+			cell_view.draw(&mut builder, *cell_type, *cell_state);
 		}
 
 		builder.finish();
