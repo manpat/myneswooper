@@ -89,12 +89,13 @@ impl App {
 	fn handle_response(&mut self, response: CellResponse, cell_position: Vec2i) {
 		match response {
 			CellResponse::BombHit => {
-				let is_first_cell = self.board.states.iter()
-					.filter(|&&state| state == CellState::Opened)
-					.count() == 1;
+				let is_first_opened_cell = self.board.states.iter()
+					.all(|&state| state != CellState::Opened);
+
+				self.board.states.set(cell_position, CellState::Opened);
 
 				// First click is always safe
-				if is_first_cell {
+				if is_first_opened_cell {
 					self.sound.play(Sound::Plik);
 					self.board.move_bomb(cell_position);
 					return;
@@ -106,6 +107,8 @@ impl App {
 			}
 
 			CellResponse::FlagPlaced => {
+				self.board.states.set(cell_position, CellState::Flagged);
+
 				if self.board.are_all_bombs_flagged() {
 					self.board.uncover_all();
 					self.sound.play(Sound::Tada);
@@ -116,15 +119,19 @@ impl App {
 			}
 
 			CellResponse::FlagRemoved => {
+				self.board.states.set(cell_position, CellState::Unopened);
 				self.sound.play(Sound::Unthup);
 			}
 
 			CellResponse::OpenSpaceUncovered => {
+				self.board.states.set(cell_position, CellState::Opened);
+
 				self.sound.play(Sound::Plik);
 				self.board.flood_uncover_empty(cell_position);
 			}
 
 			CellResponse::UnsafeSpaceUncovered => {
+				self.board.states.set(cell_position, CellState::Opened);
 				self.sound.play(Sound::Plik);
 			}
 		}
@@ -169,7 +176,7 @@ impl toybox::App for App {
 				aspect => ndc * Vec2::new(1.0, 1.0/aspect) * safe_zone,
 			});
 
-		if let Some((position, response)) = self.board_view.update(ctx, &mut self.board, mouse_pos_view) {
+		if let Some((position, response)) = self.board_view.update(ctx, &self.board, mouse_pos_view) {
 			self.handle_response(response, position);
 		}
 

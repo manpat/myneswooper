@@ -60,7 +60,7 @@ impl BoardView {
 		self.cell_bounds = Self::make_cells(board_size, self.bounds);
 	}
 
-	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board, mouse_pos: Option<Vec2>) -> Option<(Vec2i, CellResponse)> {
+	pub fn update(&mut self, ctx: &mut toybox::Context, board: &Board, mouse_pos: Option<Vec2>) -> Option<(Vec2i, CellResponse)> {
 		// Find the first cell underneath the mouse, if any.
 		self.hovered_cell = mouse_pos.and_then(|mouse_pos|
 			self.cell_bounds.iter_with_positions()
@@ -71,32 +71,22 @@ impl BoardView {
 
 		let Some(cell_position) = self.hovered_cell else { return None };
 
-		let cell_state = board.states.get_mut(cell_position).unwrap();
-		if *cell_state == CellState::Opened {
+		let cell_state = *board.states.get(cell_position).unwrap();
+		if cell_state == CellState::Opened {
 			return None;
 		}
 
 		if ctx.input.button_just_down(input::MouseButton::Right) {
-			let response = match *cell_state {
-				CellState::Flagged => {
-					*cell_state = CellState::Unopened;
-					CellResponse::FlagRemoved
-				}
-
-				CellState::Unopened => {
-					*cell_state = CellState::Flagged;
-					CellResponse::FlagPlaced
-				}
-
+			let response = match cell_state {
+				CellState::Flagged => CellResponse::FlagRemoved,
+				CellState::Unopened => CellResponse::FlagPlaced,
 				_ => unreachable!()
 			};
 
 			return Some((cell_position, response))
 		}
 
-		if *cell_state == CellState::Unopened && ctx.input.button_just_down(input::MouseButton::Left) {
-			*cell_state = CellState::Opened;
-
+		if cell_state == CellState::Unopened && ctx.input.button_just_down(input::MouseButton::Left) {
 			let cell_type = *board.types.get(cell_position).unwrap();
 			let response = match cell_type {
 				CellType::Bomb => CellResponse::BombHit,
