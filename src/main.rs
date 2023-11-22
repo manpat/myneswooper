@@ -34,8 +34,6 @@ struct App {
 	num_bombs: usize,
 
 	debug_board: bool,
-
-	cell_responses: Vec<(Vec2i, CellResponse)>,
 }
 
 impl App {
@@ -56,8 +54,6 @@ impl App {
 			num_bombs,
 
 			debug_board: false,
-
-			cell_responses: Vec::new(),
 		})
 	}
 
@@ -166,16 +162,19 @@ impl toybox::App for App {
 		};
 
 
-		ctx.gfx.frame_encoder.bind_global_ubo(0, &[global_uniforms]);
+		// TODO(pat.m): how to not need to do this
+		let mouse_pos_view = ctx.input.pointer_position()
+			.map(|ndc| match ctx.gfx.backbuffer_aspect() {
+				aspect if aspect >= 1.0 => ndc * Vec2::new(aspect, 1.0) * safe_zone,
+				aspect => ndc * Vec2::new(1.0, 1.0/aspect) * safe_zone,
+			});
 
-		self.board_view.update(ctx, &mut self.board, safe_zone, &mut self.cell_responses);
-
-		let mut cell_responses = std::mem::take(&mut self.cell_responses);
-		for (position, response) in cell_responses.drain(..) {
+		if let Some((position, response)) = self.board_view.update(ctx, &mut self.board, mouse_pos_view) {
 			self.handle_response(response, position);
 		}
 
-		self.cell_responses = cell_responses;
+
+		ctx.gfx.frame_encoder.bind_global_ubo(0, &[global_uniforms]);
 
 		self.board_view.draw(&mut ctx.gfx, &self.board);
 	}

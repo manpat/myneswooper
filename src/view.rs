@@ -5,10 +5,15 @@ use crate::ext::*;
 use crate::map::*;
 use crate::quad_builder::QuadBuilder;
 
-mod cell_view;
-use cell_view::*;
 
-pub use cell_view::CellResponse;
+
+pub enum CellResponse {
+	BombHit,
+	FlagPlaced,
+	FlagRemoved,
+	OpenSpaceUncovered,
+	UnsafeSpaceUncovered,
+}
 
 
 pub struct BoardView {
@@ -18,7 +23,9 @@ pub struct BoardView {
 	sampler: gfx::SamplerName,
 
 	pub bounds: Aabb2,
-	cells: Map<CellView>,
+	pub hovered_cell: Option<Vec2i>,
+
+	cell_bounds: Map<Aabb2>,
 }
 
 
@@ -43,23 +50,64 @@ impl BoardView {
 			},
 
 			bounds,
-			cells: Self::make_cells(board_size, bounds),
+			cell_bounds: Self::make_cells(board_size, bounds),
+			hovered_cell: None,
 		})
 	}
 
 	pub fn reset(&mut self, board_size: Vec2i) {
 		self.bounds = Self::make_bounds(board_size);
-		self.cells = Self::make_cells(board_size, self.bounds);
+		self.cell_bounds = Self::make_cells(board_size, self.bounds);
 	}
 
-	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board, safe_zone: f32, cell_responses: &mut Vec<(Vec2i, CellResponse)>) {
-		let types_and_states = std::iter::zip(board.types.iter(), board.states.iter_mut());
+	pub fn update(&mut self, ctx: &mut toybox::Context, board: &mut Board, mouse_pos: Option<Vec2>) -> Option<(Vec2i, CellResponse)> {
+		// Find the first cell underneath the mouse, if any.
+		self.hovered_cell = mouse_pos.and_then(|mouse_pos|
+			self.cell_bounds.iter_with_positions()
+				.filter(|(_, bounds)| bounds.contains_point(mouse_pos))
+				.map(|(position, _)| position)
+				.next()
+		);
 
-		for ((cell_position, cell_view), (&cell_type, cell_state)) in self.cells.iter_mut_with_positions().zip(types_and_states) {
-			if let Some(response) = cell_view.update(ctx, cell_type, cell_state, safe_zone) {
-				cell_responses.push((cell_position, response));
-			}
+		let Some(cell_position) = self.hovered_cell else { return None };
+
+		let cell_state = board.states.get_mut(cell_position).unwrap();
+		if *cell_state == CellState::Opened {
+			return None;
 		}
+
+		if ctx.input.button_just_down(input::MouseButton::Right) {
+			let response = match *cell_state {
+				CellState::Flagged => {
+					*cell_state = CellState::Unopened;
+					CellResponse::FlagRemoved
+				}
+
+				CellState::Unopened => {
+					*cell_state = CellState::Flagged;
+					CellResponse::FlagPlaced
+				}
+
+				_ => unreachable!()
+			};
+
+			return Some((cell_position, response))
+		}
+
+		if *cell_state == CellState::Unopened && ctx.input.button_just_down(input::MouseButton::Left) {
+			*cell_state = CellState::Opened;
+
+			let cell_type = *board.types.get(cell_position).unwrap();
+			let response = match cell_type {
+				CellType::Bomb => CellResponse::BombHit,
+				CellType::Empty => CellResponse::OpenSpaceUncovered,
+				CellType::BombAdjacent(_) => CellResponse::UnsafeSpaceUncovered,
+			};
+
+			return Some((cell_position, response))
+		}
+
+		None
 	}
 
 	fn make_bounds(board_size: Vec2i) -> Aabb2 {
@@ -72,10 +120,9 @@ impl BoardView {
 			.shrink(Vec2::splat(0.05))
 	}
 
-	fn make_cells(board_size: Vec2i, bounds: Aabb2) -> Map<CellView> {
+	fn make_cells(board_size: Vec2i, bounds: Aabb2) -> Map<Aabb2> {
 		Map::new_with(board_size, |pos| {
-			let bounds = bounds.section(board_size, pos).scale_about_center(Vec2::splat(0.95));
-			CellView::from(bounds)
+			bounds.section(board_size, pos).scale_about_center(Vec2::splat(0.95))
 		})
 	}
 
@@ -88,8 +135,9 @@ impl BoardView {
 
 		let types_and_states = std::iter::zip(board.types.iter(), board.states.iter());
 
-		for (cell_view, (cell_type, cell_state)) in self.cells.iter().zip(types_and_states) {
-			cell_view.draw(&mut builder, *cell_type, *cell_state);
+		for ((position, cell_bounds), (cell_type, cell_state)) in self.cell_bounds.iter_with_positions().zip(types_and_states) {
+			let is_hovered = self.hovered_cell == Some(position);
+			draw_cell(&mut builder, *cell_bounds, *cell_type, *cell_state, is_hovered);
 		}
 
 		builder.finish();
@@ -111,3 +159,38 @@ impl BoardView {
 
 
 
+fn draw_cell(builder: &mut QuadBuilder, bounds: Aabb2, cell_type: CellType, cell_state: CellState, is_hovered: bool) {
+	match cell_state {
+		CellState::Unopened => draw_cell_unopened(builder, bounds, is_hovered),
+		CellState::Flagged => draw_cell_flag(builder, bounds, is_hovered),
+		CellState::Opened => draw_cell_opened(builder, bounds, cell_type),
+	}
+}
+
+fn draw_cell_unopened(builder: &mut QuadBuilder, bounds: Aabb2, is_hovered: bool) {
+	let bg_color = match is_hovered {
+		false => Color::grey(0.3),
+		true => Color::grey(0.7),
+	};
+
+	builder.add(bounds, bg_color, 0);
+}
+
+fn draw_cell_flag(builder: &mut QuadBuilder, bounds: Aabb2, is_hovered: bool) {
+	draw_cell_unopened(builder, bounds, is_hovered);
+	builder.add(bounds, Color::white(), 9);
+}
+
+fn draw_cell_opened(builder: &mut QuadBuilder, bounds: Aabb2, cell_type: CellType) {
+	match cell_type {
+		CellType::Empty => {},
+
+		CellType::Bomb => {
+			builder.add(bounds, Color::white(), 10);
+		}
+
+		CellType::BombAdjacent(count) => {
+			builder.add(bounds, Color::white(), count as u16);
+		}
+	}
+}
